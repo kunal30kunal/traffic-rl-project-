@@ -1,8 +1,10 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-import time
 
+import streamlit as st
+import numpy as np
+import time
 from env.traffic_env import TrafficEnv
 from agent.dqn_agent import DQNAgent
 
