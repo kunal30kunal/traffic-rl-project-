@@ -1,96 +1,104 @@
 import streamlit as st
 import numpy as np
-import os
-import sys
-import torch
-
-# Fix import paths
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import time
 
 from env.traffic_env import TrafficEnv
+from agent.dqn_agent import DQNAgent
 
-# Try importing agent (optional)
-try:
-    from agent.dqn_agent import DQNAgent
-    MODEL_CODE_AVAILABLE = True
-except:
-    MODEL_CODE_AVAILABLE = False
+# ===== PAGE CONFIG =====
+st.set_page_config(page_title="Traffic RL Control", layout="centered")
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="Traffic RL AI", layout="centered")
+st.title("🚦 Traffic Signal Optimization using RL")
+st.markdown("Deep Q-Network based smart traffic control system")
 
-st.title("🚦 Traffic Signal AI Control System")
-st.write("✅ App Running Successfully")
+# ===== INIT ENV =====
+env = TrafficEnv()
 
-# ---------------- MODEL PATH ----------------
-MODEL_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "models", "dqn_model.pth")
+state_size = env.observation_space.shape[0]
+action_size = env.action_space.n
+
+# ===== LOAD MODEL =====
+@st.cache_resource
+def load_agent():
+    agent = DQNAgent(state_size, action_size)
+    try:
+        agent.load_model("models/dqn_model.pth")
+        agent.epsilon = 0.0   # 🔥 FIX: no randomness
+        return agent, True
+    except:
+        return agent, False
+
+agent, model_loaded = load_agent()
+
+if model_loaded:
+    st.success("✅ Trained model loaded (AI mode)")
+else:
+    st.warning("⚠️ No trained model found (Random mode)")
+
+# ===== SIDEBAR =====
+st.sidebar.header("⚙️ Controls")
+
+steps = st.sidebar.slider("Simulation Steps", 10, 200, 50)
+speed = st.sidebar.slider("Speed (seconds)", 0.05, 1.0, 0.2)
+
+mode = st.sidebar.selectbox(
+    "Mode",
+    ["AI Control", "Random Control"]
 )
 
-# ---------------- LOAD MODEL ----------------
-@st.cache_resource
-def load_model():
-    if MODEL_CODE_AVAILABLE and os.path.exists(MODEL_PATH):
-        try:
-            agent = DQNAgent(state_size=4, action_size=2)
-            agent.model.load_state_dict(
-                torch.load(MODEL_PATH, map_location=torch.device("cpu"))
-            )
-            agent.model.eval()
-            return agent
-        except Exception as e:
-            st.error(f"Model load error: {e}")
-            return None
-    return None
+run_btn = st.sidebar.button("▶ Run Simulation")
 
-agent = load_model()
+# ===== MAIN =====
+if run_btn:
+    state, _ = env.reset()
 
-# ---------------- ENV ----------------
-env = TrafficEnv()
-state, _ = env.reset()
+    total_reward = 0
+    rewards = []
 
-# ---------------- UI ----------------
-st.subheader("🚗 Current Traffic State (cars in lanes)")
-st.table(state.reshape(-1, 1))
+    chart = st.line_chart()
+    state_box = st.empty()
 
-# ---------------- ACTION ----------------
-if agent:
-    state_tensor = torch.FloatTensor(state).unsqueeze(0)
-    with torch.no_grad():
-        action = torch.argmax(agent.model(state_tensor)).item()
-    st.success("✅ Using Trained AI Model")
-else:
-    action = np.random.choice([0, 1])
-    st.warning("⚠️ Model not found → Using Random AI")
+    for step in range(steps):
 
-# ---------------- SIGNAL DISPLAY ----------------
-st.subheader("🎮 Control Signal")
+        # ===== ACTION =====
+        if mode == "AI Control" and model_loaded:
+            action = agent.select_action(state)
+        else:
+            action = np.random.randint(0, action_size)
 
-col1, col2 = st.columns(2)
+        # ===== STEP =====
+        next_state, reward, terminated, truncated, _ = env.step(action)
+        done = terminated or truncated
 
-with col1:
-    if action == 0:
-        st.success("🟢 Green: Lane 1 & 2")
+        total_reward += reward
+        rewards.append(total_reward)
+
+        # ===== DISPLAY STATE =====
+        state_text = "### 🚗 Current Traffic State\n"
+        for i in range(len(next_state)):
+            state_text += f"Lane {i+1}: {int(next_state[i])} cars\n"
+
+        state_text += f"\n🟢 Green Signal: **Lane {action+1}**"
+
+        state_box.markdown(state_text)
+
+        # ===== UPDATE GRAPH =====
+        chart.add_rows([[total_reward]])
+
+        state = next_state
+
+        if done:
+            break
+
+        time.sleep(speed)
+
+    # ===== FINAL OUTPUT =====
+    st.success(f"🎯 Total Reward: {total_reward}")
+
+    # ===== PERFORMANCE MESSAGE =====
+    if total_reward > -800:
+        st.success("🔥 Excellent Traffic Control!")
+    elif total_reward > -1500:
+        st.info("👍 Decent Performance")
     else:
-        st.write("🔴 Red: Lane 1 & 2")
-
-with col2:
-    if action == 1:
-        st.success("🟢 Green: Lane 3 & 4")
-    else:
-        st.write("🔴 Red: Lane 3 & 4")
-
-# ---------------- STEP ENV ----------------
-next_state, reward, _, _, _ = env.step(action)
-
-st.subheader("📊 Updated Traffic State")
-st.table(next_state.reshape(-1, 1))
-
-st.subheader("🏆 Reward")
-st.write(reward)
-
-# ---------------- DEBUG ----------------
-with st.expander("🔍 Debug Info"):
-    st.write("Model Path:", MODEL_PATH)
-    st.write("Model Exists:", os.path.exists(MODEL_PATH))
-    st.write("Model Code Available:", MODEL_CODE_AVAILABLE)
+        st.error("⚠️ Poor Performance (Try training more)")
