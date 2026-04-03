@@ -1,13 +1,7 @@
-<<<<<<< HEAD
+
 streamlit
 torch
 numpy
 gymnasium
 matplotlib
-=======
-streamlit
-torch
-numpy
-gymnasium
-matplotlib
->>>>>>> a8b08c7d8eee0273f8a1fca0cbc36ea145dcbea0
+
